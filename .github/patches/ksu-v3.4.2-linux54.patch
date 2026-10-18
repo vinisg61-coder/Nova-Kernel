@@ -24,15 +24,17 @@ index 6dae885..5bb3ba1 100644
  #include <linux/cred.h>
 diff --git a/kernel/include/nova_compat.h b/kernel/include/nova_compat.h
 new file mode 100644
-index 0000000..62b5157
+index 0000000..bff05d3
 --- /dev/null
 +++ b/kernel/include/nova_compat.h
-@@ -0,0 +1,10 @@
+@@ -0,0 +1,12 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef KSU_NOVA_COMPAT_H
 +#define KSU_NOVA_COMPAT_H
 +#include <linux/version.h>
 +#include <linux/task_work.h>
++/* The Nova build backports the Linux 5.10 SELinux policy engine. */
++#define KSU_NOVA_SELINUX_510 1
 +/* Nova 5.4 uses task_work_add(..., bool notify); true requests resume notification. */
 +#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)
 +#define TWA_RESUME true
@@ -75,6 +77,37 @@ index fbb3237..3a8d092 100644
  #include <linux/rcupdate.h>
  #include <linux/limits.h>
  #include <linux/rculist.h>
+diff --git a/kernel/selinux/sepolicy.c b/kernel/selinux/sepolicy.c
+index 1e8ebb3..86c0f10 100644
+--- a/kernel/selinux/sepolicy.c
++++ b/kernel/selinux/sepolicy.c
+@@ -79,7 +79,7 @@ static bool add_typeattribute(struct policydb *db, const char *type,
+ 
+ // htable is a struct instead of pointer above 5.8.0:
+ // https://elixir.bootlin.com/linux/v5.8-rc1/source/security/selinux/ss/symtab.h
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0) || defined(KSU_NOVA_SELINUX_510)
+ #define ksu_hashtab_for_each(htab, cur)                                        \
+     ksu_hash_for_each(htab.htable, htab.size, cur)
+ #else
+@@ -89,7 +89,7 @@ static bool add_typeattribute(struct policydb *db, const char *type,
+ 
+ // symtab_search is introduced on 5.9.0:
+ // https://elixir.bootlin.com/linux/v5.9-rc1/source/security/selinux/ss/symtab.h
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0) && !defined(KSU_NOVA_SELINUX_510)
+ #define symtab_search(s, name) hashtab_search((s)->table, name)
+ #define symtab_insert(s, name, datum) hashtab_insert((s)->table, name, datum)
+ #endif
+@@ -521,7 +521,7 @@ static bool add_type_rule(struct policydb *db, const char *s, const char *t,
+ // 5.9.0 : static inline int hashtab_insert(struct hashtab *h, void *key, void
+ // *datum, struct hashtab_key_params key_params) 5.8.0: int
+ // hashtab_insert(struct hashtab *h, void *k, void *d);
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0) || defined(KSU_NOVA_SELINUX_510)
+ static u32 filenametr_hash(const void *k)
+ {
+     const struct filename_trans_key *ft = k;
 diff --git a/kernel/sulog/event.c b/kernel/sulog/event.c
 index 17375e1..6f3b50e 100644
 --- a/kernel/sulog/event.c
