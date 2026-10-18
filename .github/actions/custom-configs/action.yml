@@ -76,7 +76,11 @@ runs:
           scripts/config --file "$OUT_DIR/.config" --disable CONFIG_KSU_MANUAL_HOOK
           scripts/config --file "$OUT_DIR/.config" --disable CONFIG_KSU_KPROBES_HOOK
           scripts/config --file "$OUT_DIR/.config" --disable CONFIG_KSU_SYSCALL_TABLE_HOOK
-          case "${HOOK_TYPE:-syscall-table}" in
+          case "${HOOK_TYPE:-builtin}" in
+            builtin)
+              scripts/config --file "$OUT_DIR/.config" --enable KPROBES --enable KRETPROBES --enable EXT4_FS
+              scripts/config --file "$OUT_DIR/.config" --enable KALLSYMS --enable KALLSYMS_ALL
+              ;;
             syscall-table) scripts/config --file "$OUT_DIR/.config" --enable CONFIG_KSU_SYSCALL_TABLE_HOOK ;;
             kprobes) scripts/config --file "$OUT_DIR/.config" --enable CONFIG_KSU_KPROBES_HOOK ;;
             scope-min-1.6|rksu|syscall) scripts/config --file "$OUT_DIR/.config" --enable CONFIG_KSU_MANUAL_HOOK ;;
@@ -94,7 +98,14 @@ runs:
           grep -qx 'CONFIG_KSU=y' "$OUT_DIR/.config" || {
             echo "::error::CONFIG_KSU was disabled by Kconfig"; exit 1;
           }
-          if [[ "${HOOK_TYPE:-syscall-table}" == "syscall-table" ]]; then
+          if [[ "${HOOK_TYPE:-builtin}" == "builtin" ]]; then
+            for symbol in KPROBES KRETPROBES HAVE_SYSCALL_TRACEPOINTS KALLSYMS_ALL; do
+              grep -qx "CONFIG_${symbol}=y" "$OUT_DIR/.config" || {
+                echo "::error::Official v3.4.2 requires CONFIG_${symbol}=y"; exit 1;
+              }
+            done
+          fi
+          if [[ "${HOOK_TYPE:-builtin}" == "syscall-table" ]]; then
             grep -qx 'CONFIG_KSU_SYSCALL_TABLE_HOOK=y' "$OUT_DIR/.config" || {
               echo "::error::syscall-table hook was disabled by Kconfig"; exit 1;
             }

@@ -32,11 +32,12 @@ on:
         default: "https://github.com/KernelSU-Next/KernelSU-Next.git"
 
       ksu_branch:
-        description: "KernelSU-Next branch (legacy includes 3.4.2 backports)"
+        description: "KernelSU Next tag or branch"
         required: false
         type: choice
-        default: "legacy"
+        default: "v3.4.2"
         options:
+          - v3.4.2
           - legacy
           - main
           - next
@@ -54,8 +55,9 @@ on:
         description: "KernelSU hook type"
         required: false
         type: choice
-        default: "syscall-table"
+        default: "builtin"
         options:
+          - builtin
           - syscall-table
           - kprobes
           - scope-min-1.6
@@ -132,7 +134,7 @@ jobs:
         uses: ./.github/actions/patch-nomount
 
       - name: 🪝 Kernel hook patch
-        if: ${{ env.KERNELSU_ENABLED == 'true' && env.HOOK_TYPE != 'kprobes' && env.HOOK_TYPE != 'syscall-table' }}
+        if: ${{ env.KERNELSU_ENABLED == 'true' && env.HOOK_TYPE != 'builtin' && env.HOOK_TYPE != 'kprobes' && env.HOOK_TYPE != 'syscall-table' }}
         timeout-minutes: 15
         uses: ./.github/actions/patch-hook
 

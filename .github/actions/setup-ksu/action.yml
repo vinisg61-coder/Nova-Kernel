@@ -9,7 +9,7 @@ runs:
         set -euo pipefail
         cd "$GITHUB_WORKSPACE"
         REPO="${KSU_REPO:-https://github.com/KernelSU-Next/KernelSU-Next.git}"
-        BRANCH="${KSU_BRANCH:-legacy}"
+        BRANCH="${KSU_BRANCH:-v3.4.2}"
 
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "🧩 KernelSU integration"
@@ -20,13 +20,20 @@ runs:
         rm -rf KernelSU
         git clone --depth=1 --filter=blob:none --single-branch -b "$BRANCH" "$REPO" KernelSU
 
-        # Official non-GKI revision containing the 3.4.2 backports.
-        if [[ "$REPO" == "https://github.com/KernelSU-Next/KernelSU-Next.git" && "$BRANCH" == "legacy" ]]; then
-          REV="0b17f24246db5c80c056b92c15bcad2b77f1276e"
-          git -C KernelSU fetch --depth=1 origin "$REV"
-          git -C KernelSU checkout --detach "$REV"
+        if [[ "$REPO" == "https://github.com/KernelSU-Next/KernelSU-Next.git" && "$BRANCH" == "v3.4.2" ]]; then
+          test "$(git -C KernelSU rev-parse HEAD)" = 4c706b5938665866ebe16944a481a7b91e3396af
+          if [[ "${HOOK_TYPE:-builtin}" != "builtin" ]]; then
+            echo "::error::Official v3.4.2 uses its built-in hooks; select hook_type=builtin"
+            exit 1
+          fi
+          # Backport the policy APIs needed by the complete 3.4.2 implementation.
+          git apply --check .github/patches/selinux-510-policy.patch
+          git apply .github/patches/selinux-510-policy.patch
+          git -C KernelSU apply --check "$GITHUB_WORKSPACE/.github/patches/ksu-v3.4.2-linux54.patch"
+          git -C KernelSU apply "$GITHUB_WORKSPACE/.github/patches/ksu-v3.4.2-linux54.patch"
+          sha256sum .github/patches/selinux-510-policy.patch .github/patches/ksu-v3.4.2-linux54.patch
         fi
-        if [[ "${HOOK_TYPE:-syscall-table}" == "syscall-table" ]] &&
+        if [[ "${HOOK_TYPE:-builtin}" == "syscall-table" ]] &&
            ! grep -q '^config KSU_SYSCALL_TABLE_HOOK$' KernelSU/kernel/Kconfig; then
           echo "::error::Selected KernelSU revision does not support syscall-table"
           exit 1
