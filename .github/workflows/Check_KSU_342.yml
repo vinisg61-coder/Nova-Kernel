@@ -31,7 +31,7 @@ jobs:
       - name: Compile complete KernelSU driver
         run: |
           set -o pipefail
-          make -j2 O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- drivers/kernelsu/ 2>&1 | tee ksu-compile.log
+          make -k -j2 O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- drivers/kernelsu/ 2>&1 | tee ksu-compile.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
