@@ -1,0 +1,100 @@
+diff --git a/kernel/Kbuild b/kernel/Kbuild
+index c32fa7c..9328453 100644
+--- a/kernel/Kbuild
++++ b/kernel/Kbuild
+@@ -89,6 +89,7 @@ KSU_KERNEL_DIR := $(src)
+ endif
+ 
+ ccflags-y += -I$(KSU_KERNEL_DIR) -I$(KSU_KERNEL_DIR)/include
++ccflags-y += -include $(KSU_KERNEL_DIR)/include/nova_compat.h
+ 
+ obj-$(CONFIG_KSU) += kernelsu.o
+ 
+diff --git a/kernel/feature/sucompat.c b/kernel/feature/sucompat.c
+index 6dae885..5bb3ba1 100644
+--- a/kernel/feature/sucompat.c
++++ b/kernel/feature/sucompat.c
+@@ -5,7 +5,6 @@
+ #include <linux/preempt.h>
+ #include <linux/printk.h>
+ #include <linux/mm.h>
+-#include <linux/pgtable.h>
+ #include <linux/uaccess.h>
+ #include <asm/current.h>
+ #include <linux/cred.h>
+diff --git a/kernel/include/nova_compat.h b/kernel/include/nova_compat.h
+new file mode 100644
+index 0000000..62b5157
+--- /dev/null
++++ b/kernel/include/nova_compat.h
+@@ -0,0 +1,10 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef KSU_NOVA_COMPAT_H
++#define KSU_NOVA_COMPAT_H
++#include <linux/version.h>
++#include <linux/task_work.h>
++/* Nova 5.4 uses task_work_add(..., bool notify); true requests resume notification. */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)
++#define TWA_RESUME true
++#endif
++#endif
+diff --git a/kernel/manager/pkg_observer.c b/kernel/manager/pkg_observer.c
+index 670918f..275a582 100644
+--- a/kernel/manager/pkg_observer.c
++++ b/kernel/manager/pkg_observer.c
+@@ -69,9 +69,22 @@ static int ksu_handle_inode_event(struct fsnotify_mark *mark, u32 mask,
+     return 0;
+ }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)
++static int ksu_handle_event(struct fsnotify_group *group, struct inode *inode,
++                            u32 mask, const void *data, int data_type,
++                            const struct qstr *name, u32 cookie,
++                            struct fsnotify_iter_info *iter_info)
++{
++    return ksu_handle_inode_event(NULL, mask, inode, NULL, name, cookie);
++}
++static const struct fsnotify_ops ksu_ops = {
++    .handle_event = ksu_handle_event,
++};
++#else
+ static const struct fsnotify_ops ksu_ops = {
+-	.handle_inode_event = ksu_handle_inode_event,
++    .handle_inode_event = ksu_handle_inode_event,
+ };
++#endif
+ 
+ static int add_mark_on_inode(struct inode *inode, u32 mask,
+                              struct fsnotify_mark **out)
+diff --git a/kernel/policy/allowlist.c b/kernel/policy/allowlist.c
+index fbb3237..3a8d092 100644
+--- a/kernel/policy/allowlist.c
++++ b/kernel/policy/allowlist.c
+@@ -1,3 +1,4 @@
++#include <linux/sched/task.h>
+ #include <linux/rcupdate.h>
+ #include <linux/limits.h>
+ #include <linux/rculist.h>
+diff --git a/kernel/sulog/event.c b/kernel/sulog/event.c
+index 17375e1..6f3b50e 100644
+--- a/kernel/sulog/event.c
++++ b/kernel/sulog/event.c
+@@ -2,7 +2,7 @@
+ #include <linux/compat.h>
+ #include <linux/cred.h>
+ #include <linux/gfp.h>
+-#include <linux/minmax.h>
++#include <linux/kernel.h>
+ #include <linux/overflow.h>
+ #include <linux/sched/signal.h>
+ #include <linux/slab.h>
+diff --git a/kernel/supercall/dispatch.c b/kernel/supercall/dispatch.c
+index a8ed010..66e4128 100644
+--- a/kernel/supercall/dispatch.c
++++ b/kernel/supercall/dispatch.c
+@@ -1,4 +1,5 @@
+ #include <linux/capability.h>
++#include <linux/sched/signal.h>
+ #include <linux/cred.h>
+ #include <linux/slab.h>
+ #include <linux/string.h>
