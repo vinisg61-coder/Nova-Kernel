@@ -1,10 +1,11 @@
-name: 🔥 NovaKernel Kernel Build
+name: 🔥 NovaKernel One UI Kernel Build
 
 on:
   workflow_dispatch:
     inputs:
       variant:
         description: "Target device"
+        default: "a52sxq"
         required: true
         type: choice
         options:
@@ -31,7 +32,7 @@ on:
         default: "https://github.com/KernelSU-Next/KernelSU-Next.git"
 
       ksu_branch:
-        description: "KernelSU-Next branch"
+        description: "KernelSU-Next branch (legacy includes 3.4.2 backports)"
         required: false
         type: choice
         default: "legacy"
@@ -53,8 +54,9 @@ on:
         description: "KernelSU hook type"
         required: false
         type: choice
-        default: "kprobes"
+        default: "syscall-table"
         options:
+          - syscall-table
           - kprobes
           - scope-min-1.6
           - rksu
@@ -65,7 +67,7 @@ on:
         description: "Upload build to Telegram?"
         required: true
         type: boolean
-        default: true
+        default: false
 
       release_type:
         description: "Release type"
@@ -130,7 +132,7 @@ jobs:
         uses: ./.github/actions/patch-nomount
 
       - name: 🪝 Kernel hook patch
-        if: ${{ env.KERNELSU_ENABLED == 'true' && env.HOOK_TYPE != 'kprobes' }}
+        if: ${{ env.KERNELSU_ENABLED == 'true' && env.HOOK_TYPE != 'kprobes' && env.HOOK_TYPE != 'syscall-table' }}
         timeout-minutes: 15
         uses: ./.github/actions/patch-hook
 

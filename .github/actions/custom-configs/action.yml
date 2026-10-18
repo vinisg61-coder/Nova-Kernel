@@ -73,7 +73,11 @@ runs:
 
         if [[ "${KERNELSU_ENABLED:-false}" == "true" ]]; then
           scripts/config --file "$OUT_DIR/.config" --enable CONFIG_KSU
-          case "${HOOK_TYPE:-kprobes}" in
+          scripts/config --file "$OUT_DIR/.config" --disable CONFIG_KSU_MANUAL_HOOK
+          scripts/config --file "$OUT_DIR/.config" --disable CONFIG_KSU_KPROBES_HOOK
+          scripts/config --file "$OUT_DIR/.config" --disable CONFIG_KSU_SYSCALL_TABLE_HOOK
+          case "${HOOK_TYPE:-syscall-table}" in
+            syscall-table) scripts/config --file "$OUT_DIR/.config" --enable CONFIG_KSU_SYSCALL_TABLE_HOOK ;;
             kprobes) scripts/config --file "$OUT_DIR/.config" --enable CONFIG_KSU_KPROBES_HOOK ;;
             scope-min-1.6|rksu|syscall) scripts/config --file "$OUT_DIR/.config" --enable CONFIG_KSU_MANUAL_HOOK ;;
             inline) scripts/config --file "$OUT_DIR/.config" --enable CONFIG_KSU_MANUAL_HOOK ;;
@@ -84,4 +88,16 @@ runs:
         scripts/config --file "$OUT_DIR/.config" --set-str LOCALVERSION ""
         scripts/config --file "$OUT_DIR/.config" --disable LOCALVERSION_AUTO
 
+        # Resolve dependencies and verify the selected driver before compiling.
+        make -C "$GITHUB_WORKSPACE" O="$OUT_DIR" ARCH=arm64 LLVM=1 olddefconfig
+        if [[ "${KERNELSU_ENABLED:-false}" == "true" ]]; then
+          grep -qx 'CONFIG_KSU=y' "$OUT_DIR/.config" || {
+            echo "::error::CONFIG_KSU was disabled by Kconfig"; exit 1;
+          }
+          if [[ "${HOOK_TYPE:-syscall-table}" == "syscall-table" ]]; then
+            grep -qx 'CONFIG_KSU_SYSCALL_TABLE_HOOK=y' "$OUT_DIR/.config" || {
+              echo "::error::syscall-table hook was disabled by Kconfig"; exit 1;
+            }
+          fi
+        fi
         echo "✅ Final kernel configuration prepared"

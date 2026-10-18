@@ -18,11 +18,26 @@ runs:
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
         rm -rf KernelSU
-        echo "Running KernelSU setup script..."
-        curl -fsSL --retry 3 "${KSU_SETUP_URL:?KSU_SETUP_URL is required}" | bash -
-
-        rm -rf KernelSU
         git clone --depth=1 --filter=blob:none --single-branch -b "$BRANCH" "$REPO" KernelSU
+
+        # Official non-GKI revision containing the 3.4.2 backports.
+        if [[ "$REPO" == "https://github.com/KernelSU-Next/KernelSU-Next.git" && "$BRANCH" == "legacy" ]]; then
+          REV="0b17f24246db5c80c056b92c15bcad2b77f1276e"
+          git -C KernelSU fetch --depth=1 origin "$REV"
+          git -C KernelSU checkout --detach "$REV"
+        fi
+        if [[ "${HOOK_TYPE:-syscall-table}" == "syscall-table" ]] &&
+           ! grep -q '^config KSU_SYSCALL_TABLE_HOOK$' KernelSU/kernel/Kconfig; then
+          echo "::error::Selected KernelSU revision does not support syscall-table"
+          exit 1
+        fi
+
+        ln -sfn ../KernelSU/kernel drivers/kernelsu
+        grep -q 'CONFIG_KSU.*kernelsu/' drivers/Makefile ||
+          printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
+        grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig ||
+          sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+        git -C KernelSU log -1 --format='KernelSU revision: %H %s'
 
         echo "✅ KernelSU integration finished"
         echo "ℹ️  This step intentionally does not run make."
