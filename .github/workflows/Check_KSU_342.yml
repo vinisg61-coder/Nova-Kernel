@@ -1,0 +1,41 @@
+name: Check official KernelSU Next v3.4.2 on A52s
+on:
+  push:
+    branches: [test/oneui-ksunext-v3.4.2]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang lld llvm gcc-aarch64-linux-gnu bc bison flex libssl-dev libelf-dev
+      - name: Integrate exact official release
+        run: |
+          git clone --depth=1 --branch v3.4.2 https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU
+          test "$(git -C KernelSU rev-parse HEAD)" = 4c706b5938665866ebe16944a481a7b91e3396af
+          ln -sfn ../KernelSU/kernel drivers/kernelsu
+          printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
+          sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+      - name: Configure A52s One UI
+        run: |
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- a52sxq_defconfig
+          scripts/config --file out/.config -e KSU -e KPROBES -e KRETPROBES -e EXT4_FS
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+          grep -qx CONFIG_KSU=y out/.config
+      - name: Compile complete KernelSU driver
+        run: |
+          set -o pipefail
+          make -j2 O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- drivers/kernelsu/ 2>&1 | tee ksu-compile.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ksu-342-compile-log
+          path: |
+            ksu-compile.log
+            out/.config
