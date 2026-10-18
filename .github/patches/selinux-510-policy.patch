@@ -1,3 +1,22 @@
+diff --git a/security/selinux/Kconfig b/security/selinux/Kconfig
+index 4d7d36f..1014cb0 100644
+--- a/security/selinux/Kconfig
++++ b/security/selinux/Kconfig
+@@ -101,3 +101,14 @@ config SECURITY_SELINUX_SIDTAB_HASH_BITS
+ 	  collisions may be viewed at /sys/fs/selinux/ss/sidtab_hash_stats. If
+ 	  chain lengths are high (e.g. > 20) then selecting a higher value here
+ 	  will ensure that lookups times are short and stable.
++
++config SECURITY_SELINUX_SID2STR_CACHE_SIZE
++	int "NSA SELinux SID to context string translation cache size"
++	depends on SECURITY_SELINUX
++	default 256
++	help
++	  This option defines the size of the internal SID -> context string
++	  cache, which improves the performance of context to string
++	  conversion.  Setting this option to 0 disables the cache completely.
++
++	  If unsure, keep the default value.
 diff --git a/security/selinux/Makefile b/security/selinux/Makefile
 index 8ab6456..6c52794 100644
 --- a/security/selinux/Makefile
@@ -102,7 +121,7 @@ index 0000000..ebd64af
 +
 +#endif /* _SELINUX_POLICYCAP_NAMES_H_ */
 diff --git a/security/selinux/include/security.h b/security/selinux/include/security.h
-index 676d93e..51ebe45 100644
+index 676d93e..9bcdf69 100644
 --- a/security/selinux/include/security.h
 +++ b/security/selinux/include/security.h
 @@ -13,9 +13,11 @@
@@ -324,7 +343,7 @@ index 676d93e..51ebe45 100644
  #ifdef CONFIG_NETLABEL
  int security_netlbl_secattr_to_sid(struct selinux_state *state,
  				   struct netlbl_lsm_secattr *secattr,
-@@ -442,7 +460,20 @@ extern int selinux_nlmsg_lookup(u16 sclass, u16 nlmsg_type, u32 *perm);
+@@ -442,7 +460,22 @@ extern int selinux_nlmsg_lookup(u16 sclass, u16 nlmsg_type, u32 *perm);
  extern void avtab_cache_init(void);
  extern void ebitmap_cache_init(void);
  extern void hashtab_cache_init(void);
@@ -344,6 +363,8 @@ index 676d93e..51ebe45 100644
 +
 +	return state->android_netlink_getneigh;
 +}
++
++extern void selinux_nlmsg_init(void);
 +
  #endif /* _SELINUX_SECURITY_H_ */
 diff --git a/security/selinux/selinuxfs.c b/security/selinux/selinuxfs.c
@@ -4220,7 +4241,7 @@ index 372e982..1f0ca64 100644
  /* the config flags related to unknown classes/perms are bits 2 and 3 */
  #define REJECT_UNKNOWN	0x00000002
 diff --git a/security/selinux/ss/services.c b/security/selinux/ss/services.c
-index a413c3b..884f6b0 100644
+index a413c3b..19b9ffd 100644
 --- a/security/selinux/ss/services.c
 +++ b/security/selinux/ss/services.c
 @@ -46,7 +46,6 @@
@@ -6177,27 +6198,27 @@ index a413c3b..884f6b0 100644
 +	struct selinux_policy *newpolicy, *oldpolicy;
 +	int rc;
 +	u32 i, seqno = 0;
- 
--	write_lock_irq(&state->ss->policy_rwlock);
++
 +	if (!selinux_initialized(state))
 +		return -EINVAL;
  
--	policydb = &state->ss->policydb;
+-	write_lock_irq(&state->ss->policy_rwlock);
 +	oldpolicy = rcu_dereference_protected(state->policy,
 +					lockdep_is_held(&state->policy_mutex));
+ 
+-	policydb = &state->ss->policydb;
++	/* Consistency check on number of booleans, should never fail */
++	if (WARN_ON(len != oldpolicy->policydb.p_bools.nprim))
++		return -EINVAL;
  
 -	rc = -EFAULT;
 -	lenp = policydb->p_bools.nprim;
 -	if (len != lenp)
 -		goto out;
-+	/* Consistency check on number of booleans, should never fail */
-+	if (WARN_ON(len != oldpolicy->policydb.p_bools.nprim))
-+		return -EINVAL;
-+
 +	newpolicy = kmemdup(oldpolicy, sizeof(*newpolicy), GFP_KERNEL);
 +	if (!newpolicy)
 +		return -ENOMEM;
- 
++
 +	/*
 +	 * Deep copy only the parts of the policydb that might be
 +	 * modified as a result of changing booleans.
@@ -6207,7 +6228,7 @@ index a413c3b..884f6b0 100644
 +		kfree(newpolicy);
 +		return -ENOMEM;
 +	}
-+
+ 
 +	/* Update the boolean states in the copy */
  	for (i = 0; i < len; i++) {
 -		if (!!values[i] != policydb->bool_val_to_struct[i]->state) {
@@ -6645,14 +6666,11 @@ index a413c3b..884f6b0 100644
  
  	return rc;
  }
-@@ -3367,10 +3567,12 @@ void selinux_audit_rule_free(void *vrule)
- 	}
- }
+@@ -3369,8 +3569,10 @@ void selinux_audit_rule_free(void *vrule)
  
--int selinux_audit_rule_init(u32 field, u32 op, char *rulestr, void **vrule)
-+int selinux_audit_rule_init(u32 field, u32 op, char *rulestr, void **vrule,
-+			    gfp_t gfp)
+ int selinux_audit_rule_init(u32 field, u32 op, char *rulestr, void **vrule)
  {
++	const gfp_t gfp = GFP_KERNEL;
  	struct selinux_state *state = &selinux_state;
 -	struct policydb *policydb = &state->ss->policydb;
 +	struct selinux_policy *policy;
