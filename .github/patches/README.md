@@ -11,6 +11,11 @@ Features conditional on platform/build mode retain upstream conditions.
 
 ## Compatibility patches
 
+* `path-mount-linux54.patch`: split `do_mount` into a resolved-path mount API
+  and the user-path wrapper. The kernel now provides `path_mount`, including
+  its original security checks, mount flag handling and propagation behavior.
+  The caller retains ownership of the resolved path reference.
+
 * `ksu-v3.4.2-linux54.patch`: include/header compatibility, the 5.4 boolean
   task-work notification API, an fsnotify callback adapter, and selection of
   the backported SELinux hash-table interfaces. No feature is disabled.

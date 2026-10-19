@@ -26,12 +26,14 @@ runs:
             echo "::error::Official v3.4.2 uses its built-in hooks; select hook_type=builtin"
             exit 1
           fi
+          git apply --check .github/patches/path-mount-linux54.patch
+          git apply .github/patches/path-mount-linux54.patch
           # Backport the policy APIs needed by the complete 3.4.2 implementation.
           git apply --check .github/patches/selinux-510-policy.patch
           git apply .github/patches/selinux-510-policy.patch
           git -C KernelSU apply --check "$GITHUB_WORKSPACE/.github/patches/ksu-v3.4.2-linux54.patch"
           git -C KernelSU apply "$GITHUB_WORKSPACE/.github/patches/ksu-v3.4.2-linux54.patch"
-          sha256sum .github/patches/selinux-510-policy.patch .github/patches/ksu-v3.4.2-linux54.patch
+          sha256sum .github/patches/path-mount-linux54.patch .github/patches/selinux-510-policy.patch .github/patches/ksu-v3.4.2-linux54.patch
         fi
         if [[ "${HOOK_TYPE:-builtin}" == "syscall-table" ]] &&
            ! grep -q '^config KSU_SYSCALL_TABLE_HOOK$' KernelSU/kernel/Kconfig; then
