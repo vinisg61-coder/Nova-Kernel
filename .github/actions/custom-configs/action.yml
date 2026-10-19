@@ -89,6 +89,12 @@ runs:
           esac
         fi
 
+        if [[ "${SUSFS_ENABLED:-false}" == "true" ]]; then
+          for symbol in KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SPOOF_UNAME KSU_SUSFS_ENABLE_LOG KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG KSU_SUSFS_OPEN_REDIRECT KSU_SUSFS_SUS_MAP; do
+            scripts/config --file "$OUT_DIR/.config" --enable "$symbol"
+          done
+        fi
+
         scripts/config --file "$OUT_DIR/.config" --set-str LOCALVERSION ""
         scripts/config --file "$OUT_DIR/.config" --disable LOCALVERSION_AUTO
 
@@ -110,5 +116,12 @@ runs:
               echo "::error::syscall-table hook was disabled by Kconfig"; exit 1;
             }
           fi
+        fi
+        if [[ "${SUSFS_ENABLED:-false}" == "true" ]]; then
+          for symbol in KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SPOOF_UNAME KSU_SUSFS_ENABLE_LOG KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG KSU_SUSFS_OPEN_REDIRECT KSU_SUSFS_SUS_MAP; do
+            grep -qx "CONFIG_${symbol}=y" "$OUT_DIR/.config" || {
+              echo "::error::SUSFS configuration missing: $symbol"; exit 1;
+            }
+          done
         fi
         echo "✅ Final kernel configuration prepared"

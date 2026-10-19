@@ -33,6 +33,14 @@ runs:
           git apply .github/patches/selinux-510-policy.patch
           git -C KernelSU apply --check "$GITHUB_WORKSPACE/.github/patches/ksu-v3.4.2-linux54.patch"
           git -C KernelSU apply "$GITHUB_WORKSPACE/.github/patches/ksu-v3.4.2-linux54.patch"
+          if [[ "${SUSFS_ENABLED:-false}" == "true" ]]; then
+            git apply --check .github/patches/susfs-2.3.0-linux54.patch
+            git apply .github/patches/susfs-2.3.0-linux54.patch
+            git -C KernelSU apply --check "$GITHUB_WORKSPACE/.github/patches/ksu-v3.4.2-susfs.patch"
+            git -C KernelSU apply "$GITHUB_WORKSPACE/.github/patches/ksu-v3.4.2-susfs.patch"
+            sha256sum .github/patches/susfs-2.3.0-linux54.patch .github/patches/ksu-v3.4.2-susfs.patch
+            grep '^#define SUSFS_VERSION' include/linux/susfs.h
+          fi
           sha256sum .github/patches/path-mount-linux54.patch .github/patches/selinux-510-policy.patch .github/patches/ksu-v3.4.2-linux54.patch
         fi
         if [[ "${HOOK_TYPE:-builtin}" == "syscall-table" ]] &&

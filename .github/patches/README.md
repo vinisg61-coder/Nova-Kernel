@@ -68,3 +68,18 @@ The compatibility patch now recognizes these blocks, tests a PUD block before
 pud_bad, and enables dispatcher redirection only after verifying installation.
 The earlier successful compile was not evidence of a successful device boot.
 The corrected build still requires testing on the phone.
+
+## Optional built-in SUSFS 2.3.0
+
+Select `v3.4.2-susfs` in Actions to build the same official v3.4.2 source
+with SUSFS integrated. `v3.4.2` retains the device-tested configuration.
+The Linux 5.4 filesystem port derives from
+https://github.com/JackA1ltman/NonGKI_Kernel_Build_2nd/blob/dcd789634247c77d8549a42aef232c680a905585/Patches/Patch/susfs_patch_to_5.4.patch
+with Nova-specific context, Samsung uname preservation and the 5.4 fsnotify qstr fix.
+SUSFS Kconfig/command ABI derives from simonpunk/susfs4ksu's
+`gki-android12-5.10` integration patch, adapted to retain v3.4.2's working hooks.
+Commands use the upstream root-only reboot ABI in sleepable syscall context.
+Root-granted processes clear visibility flags; zygote children marked for
+unmount receive them. All ten SUSFS Kconfig options are verified after olddefconfig.
+This changes filesystem behavior and needs device testing separately from the
+previous successful boot without SUSFS.
