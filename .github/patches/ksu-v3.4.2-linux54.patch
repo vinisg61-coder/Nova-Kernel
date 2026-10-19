@@ -22,6 +22,67 @@ index 6dae885..5bb3ba1 100644
  #include <linux/uaccess.h>
  #include <asm/current.h>
  #include <linux/cred.h>
+diff --git a/kernel/hook/arm64/patch_memory.c b/kernel/hook/arm64/patch_memory.c
+index d58f2e4..c442e7a 100644
+--- a/kernel/hook/arm64/patch_memory.c
++++ b/kernel/hook/arm64/patch_memory.c
+@@ -13,6 +13,14 @@
+ #include "asm/cacheflush.h"
+ #include "asm-generic/fixmap.h"
+ 
++/* Linux 5.4 arm64 names block descriptors *_sect, not *_leaf. */
++#ifndef pmd_leaf
++#define pmd_leaf(pmd) pmd_sect(pmd)
++#endif
++#ifndef pud_leaf
++#define pud_leaf(pud) pud_sect(pud)
++#endif
++
+ // https://github.com/fuqiuluo/ovo/blob/f7da411458e87d32438dc14fce5a3313ed0c967e/ovo/mmuhack.c#L21
+ 
+ // Translate a kernel virtual address to a physical address by walking the
+@@ -49,7 +57,7 @@ unsigned long phys_from_virt(unsigned long addr, int *err)
+ #endif
+ 
+     pud = pud_offset(p4d, addr);
+-    if (pud_none(*pud) || pud_bad(*pud))
++    if (pud_none(*pud))
+         goto fail;
+     pr_debug("pud of 0x%lx p=0x%lx v=0x%lx", addr, (uintptr_t)pud,
+              (uintptr_t)pud_val(*pud));
+@@ -60,6 +68,10 @@ unsigned long phys_from_virt(unsigned long addr, int *err)
+     }
+ #endif
+ 
++    /* A valid block descriptor is not a table: test it before pud_bad. */
++    if (pud_bad(*pud))
++        goto fail;
++
+     pmd = pmd_offset(pud, addr);
+     pr_debug("pmd of 0x%lx p=0x%lx v=0x%lx", addr, (uintptr_t)pmd,
+              (uintptr_t)pmd_val(*pmd));
+diff --git a/kernel/hook/arm64/syscall_hook.c b/kernel/hook/arm64/syscall_hook.c
+index 7bd6df0..6cae30c 100644
+--- a/kernel/hook/arm64/syscall_hook.c
++++ b/kernel/hook/arm64/syscall_hook.c
+@@ -218,9 +218,15 @@ void __init ksu_syscall_hook_init(void)
+         return;
+     }
+ 
+-    ksu_dispatcher_nr = ni_slot;
+-    ksu_syscall_table_hook(ksu_dispatcher_nr,
++    ksu_syscall_table_hook(ni_slot,
+                            (syscall_fn_t)ksu_syscall_dispatcher, NULL);
++    if (READ_ONCE(ksu_syscall_table[ni_slot]) !=
++        (syscall_fn_t)ksu_syscall_dispatcher) {
++        pr_err("dispatcher installation failed; syscall redirection disabled\n");
++        return;
++    }
++    /* Publish only after the slot is callable, or init receives -ENOSYS. */
++    ksu_dispatcher_nr = ni_slot;
+     pr_info("dispatcher installed at slot %d\n", ksu_dispatcher_nr);
+ }
+ 
 diff --git a/kernel/include/nova_compat.h b/kernel/include/nova_compat.h
 new file mode 100644
 index 0000000..bff05d3

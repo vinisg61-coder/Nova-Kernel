@@ -18,7 +18,9 @@ Features conditional on platform/build mode retain upstream conditions.
 
 * `ksu-v3.4.2-linux54.patch`: include/header compatibility, the 5.4 boolean
   task-work notification API, an fsnotify callback adapter, and selection of
-  the backported SELinux hash-table interfaces. No feature is disabled.
+  the backported SELinux hash-table interfaces. The arm64 page-table walker
+  recognizes Linux 5.4 PMD/PUD block mappings; the dispatcher is published only
+  after its syscall-table slot is verified. No feature is disabled.
 * `selinux-510-policy.patch`: the Linux 5.10 SELinux policy engine, RCU policy
   lifecycle, policyfs/status interfaces and dependent private policy data
   structures. Sources are from `gregkh/linux` revision
@@ -28,7 +30,7 @@ Features conditional on platform/build mode retain upstream conditions.
   extensions are adapted to Nova 5.4. The SID-to-string cache Kconfig setting
   and context hashing object are included with the policy engine.
 
-Both patches are applied with `git apply`, and the build verifies the release
+These patches are applied with `git apply`, and the build verifies the release
 SHA before patching. Their SHA-256 values and the upstream revision are logged
 in Actions. Review these patches as a kernel port, not as a version string change.
 
@@ -51,3 +53,18 @@ https://github.com/vinisg61-coder/Nova-Kernel/actions/runs/39163147063
 The build reported `KernelSU-Next tag: v3.4.2` and
 `KernelSU-Next version: 33355`. Full kernel linking/packaging and hardware
 validation are separate checks.
+
+## First device boot failure and correction
+
+The build at `8d2deec32` panicked on A52s at 1.779 seconds. Its pstore logs
+showed `failed to find phy addr for patch dst addr`, followed by a misleading
+`dispatcher installed at slot 42`. The slot still pointed to ni_syscall, but
+sys_enter redirected stat/execve calls to it. Init received ENOSYS and exited:
+`Kernel panic - not syncing: Attempted to kill init! exitcode=0x00007f00`.
+
+Nova 5.4 arm64 exposes `pmd_sect`/`pud_sect`, not the newer `*_leaf` macros.
+The release walker skipped block mappings and rejected them as bad tables.
+The compatibility patch now recognizes these blocks, tests a PUD block before
+pud_bad, and enables dispatcher redirection only after verifying installation.
+The earlier successful compile was not evidence of a successful device boot.
+The corrected build still requires testing on the phone.
