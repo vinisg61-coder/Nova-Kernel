@@ -470,7 +470,7 @@ index db28661..bbb0f7e 100644
  	do_delayed_call(&done);
  	return res;
 diff --git a/fs/namespace.c b/fs/namespace.c
-index 330d952..6b5d59c 100644
+index 330d952..7e7d730 100644
 --- a/fs/namespace.c
 +++ b/fs/namespace.c
 @@ -1,3 +1,6 @@
@@ -732,11 +732,13 @@ index 330d952..6b5d59c 100644
  	if (!mnt)
  		return ERR_PTR(-ENOMEM);
  
-@@ -1239,6 +1442,11 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
+@@ -1239,6 +1442,13 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	mnt->mnt.mnt_flags = old->mnt.mnt_flags;
  	mnt->mnt.mnt_flags &= ~(MNT_WRITE_HOLD|MNT_MARKED|MNT_INTERNAL);
  
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
++	/* The ID ownership marker belongs to this allocation, not its parent. */
++	mnt->mnt.mnt_flags &= ~VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT;
 +	if (unlikely(is_mnt_ksu_unshared))
 +		mnt->mnt.mnt_flags |= VFSMOUNT_MNT_FLAGS_KSU_UNSHARED_MNT;
 +#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
@@ -744,7 +746,7 @@ index 330d952..6b5d59c 100644
  	atomic_inc(&sb->s_active);
  	mnt->mnt.mnt_sb = sb;
  	mnt->mnt.mnt_root = dget(root);
-@@ -3825,6 +4033,9 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
+@@ -3825,6 +4035,9 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
  	copy_flags = CL_COPY_UNBINDABLE | CL_EXPIRE;
  	if (user_ns != ns->user_ns)
  		copy_flags |= CL_SHARED_TO_SLAVE;
@@ -754,7 +756,7 @@ index 330d952..6b5d59c 100644
  #ifdef CONFIG_KDP_NS
  	new = copy_tree(old, ((struct kdp_mount *)old)->mnt->mnt_root, copy_flags);
  #else
-@@ -4696,3 +4907,43 @@ const struct proc_ns_operations mntns_operations = {
+@@ -4696,3 +4909,43 @@ const struct proc_ns_operations mntns_operations = {
  	.install	= mntns_install,
  	.owner		= mntns_owner,
  };
@@ -2068,10 +2070,10 @@ index 330d305..07d07be 100644
  	 * Always return at least 1 from get_anon_bdev.
 diff --git a/fs/susfs.c b/fs/susfs.c
 new file mode 100644
-index 0000000..0afeba3
+index 0000000..93b1ae5
 --- /dev/null
 +++ b/fs/susfs.c
-@@ -0,0 +1,1627 @@
+@@ -0,0 +1,1636 @@
 +#include <linux/version.h>
 +#include <linux/cred.h>
 +#include <linux/fs.h>
@@ -3313,8 +3315,10 @@ index 0000000..0afeba3
 +	size_t copied_size = 0;
 +
 +	if (!info) {
-+		info->err = -ENOMEM;
-+		goto out_copy_to_user;
++		int err = -ENOMEM;
++		(void)copy_to_user(&((struct st_susfs_enabled_features __user *)*user_info)->err,
++				   &err, sizeof(err));
++		return;
 +	}
 +
 +	if (copy_from_user(info, (struct st_susfs_enabled_features __user*)*user_info, sizeof(struct st_susfs_enabled_features))) {
@@ -3476,6 +3480,7 @@ index 0000000..0afeba3
 +	if (!wd->inode) {
 +		SUSFS_LOGE("wd->inode is NULL\n");
 +		path_put(&wd->kpath);
++		memset(&wd->kpath, 0, sizeof(wd->kpath));
 +		return -ENOENT;
 +	}
 +	ihold(wd->inode);
@@ -3486,6 +3491,7 @@ index 0000000..0afeba3
 +		iput(wd->inode);
 +		wd->inode = NULL;
 +		path_put(&wd->kpath);
++		memset(&wd->kpath, 0, sizeof(wd->kpath));
 +		return ret;
 +	}
 +	SUSFS_LOGI("watching %s\n", wd->path);
@@ -3590,10 +3596,15 @@ index 0000000..0afeba3
 +	g = fsnotify_alloc_group(&fsnotify_ops);
 +#endif
 +	if (IS_ERR(g)) {
-+		return PTR_ERR(g);
++		ret = PTR_ERR(g);
++		g = NULL;
++		static_branch_disable(&susfs_is_sdcard_android_data_not_decrypted);
++		return ret;
 +	}
 +
 +	ret = watch_one_dir(&g_watch);
++	if (ret)
++		queue_delayed_work(system_unbound_wq, &sdcard_cleanup_dwork, 0);
 +
 +	SUSFS_LOGI("ret: %d\n", ret);
 +
@@ -4313,7 +4324,7 @@ index 18ff79b..588b0a7 100644
  				gup_flags, &page, &vma, NULL);
  		if (ret <= 0) {
 diff --git a/security/selinux/avc.c b/security/selinux/avc.c
-index 7e1e6bc..7b5c6a6 100644
+index 7e1e6bc..d04c9c2 100644
 --- a/security/selinux/avc.c
 +++ b/security/selinux/avc.c
 @@ -693,6 +693,11 @@ static void avc_audit_pre_callback(struct audit_buffer *ab, void *a)
@@ -4328,7 +4339,7 @@ index 7e1e6bc..7b5c6a6 100644
  
  /**
   * avc_audit_post_callback - SELinux specific information
-@@ -719,6 +724,19 @@ static void avc_audit_post_callback(struct audit_buffer *ab, void *a)
+@@ -719,6 +724,21 @@ static void avc_audit_post_callback(struct audit_buffer *ab, void *a)
  
  	rc = security_sid_to_context(sad->state, sad->tsid, &scontext,
  				     &scontext_len);
@@ -4340,6 +4351,8 @@ index 7e1e6bc..7b5c6a6 100644
 +				audit_log_format(ab, " tsid=%d", susfs_priv_app_sid);
 +			else
 +				audit_log_format(ab, " tcontext=%s", "u:r:priv_app:s0:c512,c768");
++			if (!rc)
++				kfree(scontext);
 +			goto bypass_orig_flow;
 +		}
 +	}
@@ -4348,7 +4361,7 @@ index 7e1e6bc..7b5c6a6 100644
  	if (rc)
  		audit_log_format(ab, " tsid=%d", sad->tsid);
  	else {
-@@ -726,6 +744,9 @@ static void avc_audit_post_callback(struct audit_buffer *ab, void *a)
+@@ -726,6 +746,9 @@ static void avc_audit_post_callback(struct audit_buffer *ab, void *a)
  		kfree(scontext);
  	}
  
