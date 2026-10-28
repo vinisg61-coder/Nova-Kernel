@@ -1,0 +1,97 @@
+name: NovaKernel ColorOS 16 A52s
+
+on:
+  push:
+    branches: [update/coloros16-ksunext-3.4.2]
+    paths:
+      - '.github/**'
+      - 'arch/**'
+      - 'drivers/**'
+      - 'fs/**'
+      - 'include/**'
+      - 'kernel/**'
+      - 'security/**'
+      - 'techpack/**'
+      - 'Makefile'
+  workflow_dispatch:
+    inputs:
+      kernelsu:
+        description: Enable KernelSU Next v3.4.2
+        type: boolean
+        default: true
+      susfs:
+        description: Enable the existing SUSFS integration
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nova-coloros-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OS: ColorOS16
+  VARIANT: a52sxq
+  KERNELSU_ENABLED: ${{ github.event_name == 'push' || inputs.kernelsu }}
+  SUSFS_ENABLED: ${{ inputs.kernelsu && inputs.susfs || false }}
+  NOMOUNT_ENABLED: 'false'
+  KSU_REPO: https://github.com/KernelSU-Next/KernelSU-Next.git
+  KSU_BRANCH: v3.4.2
+  HOOK_TYPE: builtin
+
+jobs:
+  build:
+    name: A52s ColorOS 16 / Samsung vendor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate ColorOS packaging
+        run: |
+          bash -n .github/actions/pack-process/scripts/coloros.sh
+          bash -n .github/installer/coloros-anykernel.sh
+          bash .github/tests/coloros-packaging.sh
+      - uses: ./.github/actions/build-env
+      - uses: ./.github/actions/build-ready
+      - uses: ./.github/actions/setup-ksu
+        if: env.KERNELSU_ENABLED == 'true'
+        timeout-minutes: 30
+      - uses: ./.github/actions/patch-backport
+        if: env.KERNELSU_ENABLED == 'true'
+        timeout-minutes: 15
+      - uses: ./.github/actions/custom-configs
+        timeout-minutes: 15
+      - name: Check port hardware requirements
+        run: |
+          set -euo pipefail
+          for symbol in EROFS_FS EROFS_FS_ZIP SECURITY_SELINUX ANDROID_BINDER_IPC SENSORS_ET7XX; do
+            grep -qx "CONFIG_${symbol}=y" "$OUT_DIR/.config"
+          done
+          grep -qx 'CONFIG_TOUCHSCREEN_STM=m' "$OUT_DIR/.config"
+          grep -qx 'CONFIG_QCA_CLD_WLAN=m' "$OUT_DIR/.config"
+      - uses: ./.github/actions/build-process
+        timeout-minutes: 90
+      - uses: ./.github/actions/build-modules
+        timeout-minutes: 20
+      - uses: ./.github/actions/pack-process
+        timeout-minutes: 15
+      - uses: actions/upload-artifact@v4
+        with:
+          name: a52sxq-ColorOS16-NovaKernel
+          path: ${{ env.OUTPUT_DIR }}/*.zip
+          if-no-files-found: error
+          compression-level: 0
+      - name: Upload configuration and build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a52sxq-ColorOS16-build-info
+          path: |
+            out/.config
+            out/include/config/kernel.release
+            out/Module.symvers
+          if-no-files-found: ignore
+      - uses: ./.github/actions/job-summary
+        if: always()
