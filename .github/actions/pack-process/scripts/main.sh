@@ -22,7 +22,11 @@ KO_COUNT="${#MODULE_FILES[@]}"
 export KO_COUNT
 printf 'KO_COUNT=%s\n' "$KO_COUNT" >> "$GITHUB_ENV"
 
-if (( KO_COUNT > 0 )); then
+if [[ "${OS:-}" == "ColorOS16" ]]; then
+    PACKAGE_MODE=ColorOS-AnyKernel3
+    export PACKAGE_MODE
+    bash "$SCRIPT_DIR/coloros.sh"
+elif (( KO_COUNT > 0 )); then
     PACKAGE_MODE=GKI
     echo "📦 Detected $KO_COUNT kernel module(s) → GKI"
     printf 'PACKAGE_MODE=%s\n' "$PACKAGE_MODE" >> "$GITHUB_ENV"

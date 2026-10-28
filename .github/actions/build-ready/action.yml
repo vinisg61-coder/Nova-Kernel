@@ -116,12 +116,14 @@ runs:
         fi
 
     - name: 📂 Restore stock image cache
+      if: ${{ env.OS != 'ColorOS16' }}
       uses: actions/cache@v4
       with:
         path: ~/toolchains/images
         key: novakernel-stock-images-v2-${{ env.VARIANT }}
 
     - name: 📥 Download stock images
+      if: ${{ env.OS != 'ColorOS16' }}
       shell: bash
       run: |
         set -euo pipefail

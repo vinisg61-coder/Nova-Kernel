@@ -8,7 +8,7 @@
 
 # ── Project ───────────────────────────────────────────────
 KERNEL_NAME="NovaKernel"
-OS="OneUI"
+OS="${OS:-OneUI}"
 
 # ── Toolchain ─────────────────────────────────────────────
 CLANG_VERSION="clang-clang-r614150"
