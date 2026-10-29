@@ -23,6 +23,9 @@ pinned AnyKernel3 backend. Recovery already owns APEX loop devices, and
 reusing loop0 can block `losetup` before flashing. The bundled static repack
 tools do not require remounting Android APEX packages. Default behavior in
 other AnyKernel packages is unaffected.
+The ColorOS packaging patch also corrects the pinned fork's legacy lowercase
+`split_img`/`ramdisk` checks to `SPLITIMG`/`RAMDISK`, so the installed vendor
+ramdisk is actually extracted and its modified module set is repacked.
 EROFS, SELinux, ET7XX, modular STM touch and WLAN are checked before compilation.
 Existing fingerprint v1.0.1 and GCam hotfix modules remain separate; this kernel
 does not implement their userspace fixes or bundle calibration/personal data.

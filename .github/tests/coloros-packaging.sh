@@ -5,7 +5,14 @@ ROOT="$(git rev-parse --show-toplevel)"
 TEST="$(mktemp -d)"
 trap 'rm -rf "$TEST"' EXIT
 mkdir -p "$TEST/bin" "$TEST/template/tools" "$TEST/out/arch/arm64/boot/dts/vendor/qcom" "$TEST/mods" "$TEST/packages" "$TEST/runner"
-printf 'fixture\n' > "$TEST/template/tools/ak3-core.sh"
+cat > "$TEST/template/tools/ak3-core.sh" <<'CORE'
+dump_boot() {
+  [ -f "$split_img/ramdisk.cpio.gz" -o -f "$split_img/ramdisk.cpio" ] && unpack_ramdisk;
+}
+write_boot() {
+  [ -d "$ramdisk" ] && repack_ramdisk;
+}
+CORE
 mkdir -p "$TEST/template/META-INF/com/google/android"
 cat > "$TEST/template/META-INF/com/google/android/update-binary" <<'UPDATER'
 #!/usr/bin/env bash
@@ -45,6 +52,9 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     assert 'do.mountapex=0' in z.read('anykernel.sh').decode()
     backend=z.read('META-INF/com/google/android/update-binary').decode()
     assert 'file_getprop anykernel.sh do.mountapex' in backend
+    core=z.read('tools/ak3-core.sh').decode()
+    assert '"$SPLITIMG/ramdisk.cpio"' in core
+    assert '[ -d "$RAMDISK" ] && repack_ramdisk;' in core
 PY
 # Exercise the patched recovery guard, without mount/flash commands.
 mkdir -p "$TEST/guard"
@@ -53,6 +63,12 @@ printf 'do.mountapex=0\n' > "$TEST/guard/anykernel.sh"
 [[ -z "$(cd "$TEST/guard"; bash updater)" ]]
 printf 'do.mountapex=1\n' > "$TEST/guard/anykernel.sh"
 [[ "$(cd "$TEST/guard"; bash updater)" == APEX_MOUNT ]]
+cp "$TEST/template/tools/ak3-core.sh" "$TEST/core-good"
+printf 'unexpected core\n' > "$TEST/template/tools/ak3-core.sh"
+if bash "$ROOT/.github/actions/pack-process/scripts/coloros.sh"; then
+    echo 'Packager accepted incompatible AnyKernel core' >&2; exit 1
+fi
+cp "$TEST/core-good" "$TEST/template/tools/ak3-core.sh"
 # Refuse drift in the pinned backend instead of shipping an unpatched ZIP.
 printf 'unexpected backend\n' > "$TEST/template/META-INF/com/google/android/update-binary"
 if bash "$ROOT/.github/actions/pack-process/scripts/coloros.sh"; then
