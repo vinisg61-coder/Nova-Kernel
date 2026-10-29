@@ -6,6 +6,16 @@ TEST="$(mktemp -d)"
 trap 'rm -rf "$TEST"' EXIT
 mkdir -p "$TEST/bin" "$TEST/template/tools" "$TEST/out/arch/arm64/boot/dts/vendor/qcom" "$TEST/mods" "$TEST/packages" "$TEST/runner"
 printf 'fixture\n' > "$TEST/template/tools/ak3-core.sh"
+mkdir -p "$TEST/template/META-INF/com/google/android"
+cat > "$TEST/template/META-INF/com/google/android/update-binary" <<'UPDATER'
+#!/usr/bin/env bash
+file_getprop() { grep "^$2=" "$1" | cut -d= -f2-; }
+mount_apex() { echo APEX_MOUNT; }
+mount_all() {
+    mount_apex;
+}
+mount_all
+UPDATER
 cat > "$TEST/bin/git" <<'GIT'
 #!/usr/bin/env bash
 if [[ "$1" == clone ]]; then
@@ -32,7 +42,23 @@ with zipfile.ZipFile(sys.argv[1]) as z:
         assert name in files, name
     assert not any(n.endswith(('boot.img','vendor_boot.img','fstab.qcom')) for n in files)
     assert not any(n.startswith('.git/') for n in files)
+    assert 'do.mountapex=0' in z.read('anykernel.sh').decode()
+    backend=z.read('META-INF/com/google/android/update-binary').decode()
+    assert 'file_getprop anykernel.sh do.mountapex' in backend
 PY
+# Exercise the patched recovery guard, without mount/flash commands.
+mkdir -p "$TEST/guard"
+unzip -p "$PACKAGE_BASE/$ZIP_NAME" META-INF/com/google/android/update-binary > "$TEST/guard/updater"
+printf 'do.mountapex=0\n' > "$TEST/guard/anykernel.sh"
+[[ -z "$(cd "$TEST/guard"; bash updater)" ]]
+printf 'do.mountapex=1\n' > "$TEST/guard/anykernel.sh"
+[[ "$(cd "$TEST/guard"; bash updater)" == APEX_MOUNT ]]
+# Refuse drift in the pinned backend instead of shipping an unpatched ZIP.
+printf 'unexpected backend\n' > "$TEST/template/META-INF/com/google/android/update-binary"
+if bash "$ROOT/.github/actions/pack-process/scripts/coloros.sh"; then
+    echo 'Packager accepted incompatible AnyKernel backend' >&2; exit 1
+fi
+printf '    mount_apex;\n' > "$TEST/template/META-INF/com/google/android/update-binary"
 rm "$TEST/mods/stm_ts.ko"
 if bash "$ROOT/.github/actions/pack-process/scripts/coloros.sh"; then
     echo 'Packager accepted missing touch module' >&2; exit 1

@@ -18,6 +18,11 @@ and replaces Image, vendor DTB and DTBO. Unsupported devices or header versions
 are rejected before flashing. Only A52s is included; A73/M52 are not validated.
 
 The original One UI workflow remains available. Its packaging is unchanged.
+ColorOS sets `do.mountapex=0`: the packager adds a guarded opt-out to the
+pinned AnyKernel3 backend. Recovery already owns APEX loop devices, and
+reusing loop0 can block `losetup` before flashing. The bundled static repack
+tools do not require remounting Android APEX packages. Default behavior in
+other AnyKernel packages is unaffected.
 EROFS, SELinux, ET7XX, modular STM touch and WLAN are checked before compilation.
 Existing fingerprint v1.0.1 and GCam hotfix modules remain separate; this kernel
 does not implement their userspace fixes or bundle calibration/personal data.

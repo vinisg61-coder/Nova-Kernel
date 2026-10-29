@@ -5,6 +5,7 @@ kernel.string=NovaKernel ColorOS 16 A52s
 kernel.revision=5.4
 do.devicecheck=1
 do.modules=0
+do.mountapex=0
 do.cleanup=1
 device.name1=a52sxq
 supported.versions=16

@@ -19,6 +19,9 @@ git clone --quiet --depth=1 "$AK3_REPO" "$AK3_DIR"
 rm -rf "$AK3_DIR/ramdisk" "$AK3_DIR/patch" "$AK3_DIR/modules"
 mkdir -p "$AK3_DIR/boot-files" "$AK3_DIR/vendor_boot-files" "$AK3_DIR/coloros-modules" "$AK3_DIR/coloros-firmware"
 cp "$GITHUB_WORKSPACE/.github/installer/coloros-anykernel.sh" "$AK3_DIR/anykernel.sh"
+# Recovery already owns APEX loop devices. This port only needs the static
+# repack tools, so avoid reconfiguring those loops during environment setup.
+python3 "$GITHUB_WORKSPACE/.github/installer/patch-coloros-updater.py" "$AK3_DIR/META-INF/com/google/android/update-binary"
 cp "$OUT_DIR/arch/arm64/boot/Image" "$AK3_DIR/boot-files/Image"
 cp "$OUT_DIR/arch/arm64/boot/dtbo.img" "$AK3_DIR/boot-files/dtbo.img"
 cp "$OUT_DIR/arch/arm64/boot/dts/vendor/qcom/$DTB_NAME" "$AK3_DIR/vendor_boot-files/dtb"
