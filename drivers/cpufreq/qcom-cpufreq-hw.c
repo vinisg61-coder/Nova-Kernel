@@ -537,7 +537,7 @@ static int qcom_cpufreq_hw_nova_oc(struct platform_device *pdev,
 		return 0;
 	lval = FIELD_GET(LUT_L_VAL, data);
 	if (xo_rate * lval / 1000 != 2400000 ||
-	    lval + nova_oc_steps > FIELD_MAX(LUT_L_VAL))
+	    lval + nova_oc_steps > LUT_L_VAL)
 		return 0;
 
 	c->nova_oc_stock_khz = 2400000;
