@@ -155,6 +155,19 @@ config ARM_QCOM_CPUFREQ_HW
 	  The driver implements the cpufreq interface for this HW engine.
 	  Say Y if you want to support CPUFreq HW.
 
+config QCOM_CPUFREQ_HW_NOVA_OC
+	bool "Experimental Nova SM7325 prime CPU overclock"
+	depends on ARM_QCOM_CPUFREQ_HW=y && OF
+	default n
+	help
+	  Include an opt-in experiment for the single-core prime domain of
+	  SM7325/Yupik. No register is modified unless the boot parameter
+	  qcom_cpufreq_hw.nova_oc_steps is set to 1 through 5. Each step is
+	  19.2 MHz above the expected 2.4 GHz firmware limit. Voltage and
+	  thermal controls remain unchanged. Hardware acceptance and actual
+	  clock rate require on-device validation; a successful build is not
+	  proof that overclocking works. Say N unless testing this hardware.
+
 config ARM_QCOM_CPUFREQ_HW_DEBUG
 	bool "QCOM CPUFreq HW debug"
 	depends on ARM_QCOM_CPUFREQ_HW && DEBUG_FS

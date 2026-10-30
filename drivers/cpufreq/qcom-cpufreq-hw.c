@@ -63,6 +63,12 @@ static unsigned int lut_max_entries = LUT_MAX_ENTRIES;
 static bool accumulative_counter;
 static bool perf_lock_support;
 
+#if IS_ENABLED(CONFIG_QCOM_CPUFREQ_HW_NOVA_OC)
+static unsigned int nova_oc_steps;
+module_param_named(nova_oc_steps, nova_oc_steps, uint, 0400);
+MODULE_PARM_DESC(nova_oc_steps, "Experimental prime OC: 0=off, 1..5=19.2 MHz steps");
+#endif
+
 struct cpufreq_qcom {
 	struct cpufreq_frequency_table *table;
 	void __iomem *base;
@@ -78,6 +84,11 @@ struct cpufreq_qcom {
 	char dcvsh_irq_name[MAX_FN_SIZE];
 	bool is_irq_enabled;
 	bool is_irq_requested;
+#if IS_ENABLED(CONFIG_QCOM_CPUFREQ_HW_NOVA_OC)
+	const char *nova_oc_status;
+	u32 nova_oc_stock_khz;
+	u32 nova_oc_requested_khz;
+#endif
 #if IS_ENABLED(CONFIG_SEC_PM)
 	unsigned long lowest_freq;
 	bool limiting;
@@ -394,9 +405,28 @@ static int qcom_cpufreq_hw_cpu_init(struct cpufreq_policy *policy)
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_QCOM_CPUFREQ_HW_NOVA_OC)
+static ssize_t nova_oc_status_show(struct cpufreq_policy *policy, char *buf)
+{
+	struct cpufreq_qcom *c = qcom_freq_domain_map[policy->cpu];
+
+	return scnprintf(buf, PAGE_SIZE, "%s stock_khz=%u requested_khz=%u\n",
+			 c->nova_oc_status ?: "disabled", c->nova_oc_stock_khz,
+			 c->nova_oc_requested_khz);
+}
+
+static struct freq_attr nova_oc_status_attr = {
+	.attr = { .name = "nova_oc_status", .mode = 0444 },
+	.show = nova_oc_status_show,
+};
+#endif
+
 static struct freq_attr *qcom_cpufreq_hw_attr[] = {
 	&cpufreq_freq_attr_scaling_available_freqs,
 	&cpufreq_freq_attr_scaling_boost_freqs,
+#if IS_ENABLED(CONFIG_QCOM_CPUFREQ_HW_NOVA_OC)
+	&nova_oc_status_attr,
+#endif
 	NULL
 };
 
@@ -468,6 +498,78 @@ static struct cpufreq_driver cpufreq_qcom_hw_driver = {
 	.suspend	= qcom_cpufreq_hw_suspend,
 	.resume		= qcom_cpufreq_hw_resume,
 };
+
+#if IS_ENABLED(CONFIG_QCOM_CPUFREQ_HW_NOVA_OC)
+/* Never change the software table unless both hardware rows read back. */
+static int qcom_cpufreq_hw_nova_oc(struct platform_device *pdev,
+				 struct cpufreq_qcom *c, u32 max_cores)
+{
+	struct device *dev = &pdev->dev;
+	void __iomem *row[2];
+	u32 prev = 0, data, lval, old[2], updated[2], i, j;
+
+	if (!nova_oc_steps)
+		return 0;
+	if (!of_machine_is_compatible("qcom,yupik") ||
+	    offsets != cpufreq_qcom_epss_std_offsets ||
+	    cpumask_weight(&c->related_cpus) != 1 ||
+	    cpumask_first(&c->related_cpus) != 7 || max_cores != 1)
+		return 0;
+
+	c->nova_oc_status = "unsupported-lut";
+	if (nova_oc_steps > 5 || xo_rate != 19200000) {
+		c->nova_oc_status = "invalid-request";
+		dev_warn(dev, "Nova OC: invalid step count or reference clock\n");
+		return 0;
+	}
+
+	/* Require the expected duplicate terminator and 2.4 GHz stock row. */
+	for (i = 0; i < lut_max_entries; i++) {
+		data = readl(c->base + offsets[REG_FREQ_LUT] + i * lut_row_size);
+		if (i && FIELD_GET(LUT_L_VAL, data) == FIELD_GET(LUT_L_VAL, prev) &&
+		    FIELD_GET(LUT_SRC, data) == FIELD_GET(LUT_SRC, prev) &&
+		    FIELD_GET(LUT_CORE_COUNT, data) == FIELD_GET(LUT_CORE_COUNT, prev))
+			break;
+		prev = data;
+	}
+	if (!i || i == lut_max_entries || data != prev ||
+	    !FIELD_GET(LUT_SRC, data) || FIELD_GET(LUT_CORE_COUNT, data) != 1)
+		return 0;
+	lval = FIELD_GET(LUT_L_VAL, data);
+	if (xo_rate * lval / 1000 != 2400000 ||
+	    lval + nova_oc_steps > FIELD_MAX(LUT_L_VAL))
+		return 0;
+
+	c->nova_oc_stock_khz = 2400000;
+	c->nova_oc_requested_khz = xo_rate * (lval + nova_oc_steps) / 1000;
+	for (j = 0; j < ARRAY_SIZE(row); j++) {
+		row[j] = c->base + offsets[REG_FREQ_LUT] + (i - 1 + j) * lut_row_size;
+		old[j] = readl(row[j]);
+		updated[j] = (old[j] & ~LUT_L_VAL) |
+			     FIELD_PREP(LUT_L_VAL, lval + nova_oc_steps);
+	}
+
+	/* Opt-in only: firmware may protect these registers, or reject the rate. */
+	for (j = 0; j < ARRAY_SIZE(row); j++)
+		writel(updated[j], row[j]);
+	if (readl(row[0]) != updated[0] || readl(row[1]) != updated[1]) {
+		for (j = 0; j < ARRAY_SIZE(row); j++)
+			writel(old[j], row[j]);
+		if (readl(row[0]) != old[0] || readl(row[1]) != old[1]) {
+			dev_err(dev, "Nova OC: LUT rollback failed\n");
+			return -EIO;
+		}
+		c->nova_oc_status = "firmware-rejected";
+		dev_warn(dev, "Nova OC: hardware rejected write; stock LUT restored\n");
+		return 0;
+	}
+
+	c->nova_oc_status = "lut-updated-clock-unverified";
+	dev_warn(dev, "Nova OC: LUT %u -> %u kHz; actual clock NOT verified\n",
+		 c->nova_oc_stock_khz, c->nova_oc_requested_khz);
+	return 0;
+}
+#endif
 
 static int qcom_cpufreq_hw_read_lut(struct platform_device *pdev,
 				    struct cpufreq_qcom *c, u32 max_cores)
@@ -597,6 +699,11 @@ static int qcom_cpu_resources_init(struct platform_device *pdev,
 		return -ENONET;
 	}
 
+#if IS_ENABLED(CONFIG_QCOM_CPUFREQ_HW_NOVA_OC)
+	ret = qcom_cpufreq_hw_nova_oc(pdev, c, max_cores);
+	if (ret)
+		return ret;
+#endif
 	ret = qcom_cpufreq_hw_read_lut(pdev, c, max_cores);
 	if (ret) {
 		dev_err(dev, "Domain-%d failed to read LUT\n", index);

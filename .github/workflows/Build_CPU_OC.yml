@@ -1,0 +1,101 @@
+name: Nova One UI A52s KSU 3.4.2 CPU OC experiment
+
+on:
+  push:
+    branches: [oc/oneui-ksunext-3.4.2-cpu]
+    paths:
+      - drivers/cpufreq/**
+      - arch/arm64/configs/a52sxq_defconfig
+      - .github/workflows/Build_CPU_OC.yml
+      - .github/actions/**
+      - .github/config/**
+      - .github/patches/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nova-cpu-oc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      VARIANT: a52sxq
+      KERNELSU_ENABLED: 'true'
+      KSU_REPO: https://github.com/KernelSU-Next/KernelSU-Next.git
+      KSU_BRANCH: v3.4.2
+      HOOK_TYPE: builtin
+      SUSFS_ENABLED: 'false'
+      NOMOUNT_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Check CPU OC patch style
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin aeeef647c2a6fe185bec3e03c34f49bb1504334d
+          git diff aeeef647c2a6fe185bec3e03c34f49bb1504334d HEAD -- drivers/cpufreq/ > /tmp/cpu-oc.patch
+          scripts/checkpatch.pl --no-tree --terse --max-line-length=100 /tmp/cpu-oc.patch
+      - uses: ./.github/actions/build-env
+      - uses: ./.github/actions/build-ready
+      - uses: ./.github/actions/setup-ksu
+      - uses: ./.github/actions/custom-configs
+      - name: Verify exact KSU and optional OC configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C KernelSU rev-parse HEAD)" = 4c706b5938665866ebe16944a481a7b91e3396af
+          grep -qx CONFIG_KSU=y "$OUT_DIR/.config"
+          grep -qx CONFIG_QCOM_CPUFREQ_HW_NOVA_OC=y "$OUT_DIR/.config"
+          if grep -E '^CONFIG_CMDLINE=.*nova_oc_steps=[1-9]' "$OUT_DIR/.config"; then
+            echo '::error::OC must stay off by default'
+            exit 1
+          fi
+      - name: Compile kernel and device trees
+        timeout-minutes: 90
+        shell: bash
+        run: |
+          set -euo pipefail
+          make -j"$(nproc)" O="$OUT_DIR" 2>&1 | tee cpu-oc-build.log
+      - name: Stage raw build artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          test -s "$OUT_DIR/arch/arm64/boot/Image"
+          cp "$OUT_DIR/arch/arm64/boot/Image" artifacts/
+          find "$OUT_DIR/arch/arm64/boot" -maxdepth 1 -type f -name 'Image.*' -exec cp '{}' artifacts/ \;
+          test -s "$OUT_DIR/arch/arm64/boot/dts/vendor/qcom/yupik.dtb"
+          cp "$OUT_DIR/arch/arm64/boot/dts/vendor/qcom/yupik.dtb" artifacts/
+          if test -f "$OUT_DIR/arch/arm64/boot/dtbo.img"; then
+            cp "$OUT_DIR/arch/arm64/boot/dtbo.img" artifacts/
+          fi
+          cp "$OUT_DIR/.config" artifacts/kernel.config
+          cp CPU-OC.md artifacts/
+          find "$OUT_DIR" -type f -name '*.ko' -print0 | tar --null -T - -czf artifacts/modules.tar.gz
+          {
+            echo "kernel_commit=$(git rev-parse HEAD)"
+            echo "ksu_commit=$(git -C KernelSU rev-parse HEAD)"
+            echo 'device=a52sxq'
+            echo 'os=OneUI'
+            echo 'cpu_oc=compiled-in-disabled-until-boot-parameter'
+            echo 'hardware_clock_validation=not-performed'
+          } > artifacts/build-info.txt
+          (cd artifacts && sha256sum Image* yupik.dtb kernel.config modules.tar.gz > SHA256SUMS)
+      - name: Upload raw kernel and build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nova-OneUI-A52s-KSUNext-3.4.2-CPU-OC-experimental
+          path: |
+            artifacts/
+            cpu-oc-build.log
+            out/.config
+          if-no-files-found: warn
+          compression-level: 1
