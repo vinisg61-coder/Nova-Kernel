@@ -552,10 +552,12 @@ static int qcom_cpufreq_hw_nova_oc(struct platform_device *pdev,
 	/* Opt-in only: firmware may protect these registers, or reject the rate. */
 	for (j = 0; j < ARRAY_SIZE(row); j++)
 		writel_relaxed(updated[j], row[j]);
+	/* Order both frequency writes before checking the hardware response. */
 	mb();
 	if (readl_relaxed(row[0]) != updated[0] || readl_relaxed(row[1]) != updated[1]) {
 		for (j = 0; j < ARRAY_SIZE(row); j++)
 			writel_relaxed(old[j], row[j]);
+		/* Complete the rollback writes before verifying the original rows. */
 		mb();
 		if (readl_relaxed(row[0]) != old[0] || readl_relaxed(row[1]) != old[1]) {
 			dev_err(dev, "Nova OC: LUT rollback failed\n");
