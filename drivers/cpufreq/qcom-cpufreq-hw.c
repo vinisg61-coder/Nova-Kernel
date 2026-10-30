@@ -525,7 +525,7 @@ static int qcom_cpufreq_hw_nova_oc(struct platform_device *pdev,
 
 	/* Require the expected duplicate terminator and 2.4 GHz stock row. */
 	for (i = 0; i < lut_max_entries; i++) {
-		data = readl(c->base + offsets[REG_FREQ_LUT] + i * lut_row_size);
+		data = readl_relaxed(c->base + offsets[REG_FREQ_LUT] + i * lut_row_size);
 		if (i && FIELD_GET(LUT_L_VAL, data) == FIELD_GET(LUT_L_VAL, prev) &&
 		    FIELD_GET(LUT_SRC, data) == FIELD_GET(LUT_SRC, prev) &&
 		    FIELD_GET(LUT_CORE_COUNT, data) == FIELD_GET(LUT_CORE_COUNT, prev))
@@ -544,18 +544,20 @@ static int qcom_cpufreq_hw_nova_oc(struct platform_device *pdev,
 	c->nova_oc_requested_khz = xo_rate * (lval + nova_oc_steps) / 1000;
 	for (j = 0; j < ARRAY_SIZE(row); j++) {
 		row[j] = c->base + offsets[REG_FREQ_LUT] + (i - 1 + j) * lut_row_size;
-		old[j] = readl(row[j]);
+		old[j] = readl_relaxed(row[j]);
 		updated[j] = (old[j] & ~LUT_L_VAL) |
 			     FIELD_PREP(LUT_L_VAL, lval + nova_oc_steps);
 	}
 
 	/* Opt-in only: firmware may protect these registers, or reject the rate. */
 	for (j = 0; j < ARRAY_SIZE(row); j++)
-		writel(updated[j], row[j]);
-	if (readl(row[0]) != updated[0] || readl(row[1]) != updated[1]) {
+		writel_relaxed(updated[j], row[j]);
+	mb();
+	if (readl_relaxed(row[0]) != updated[0] || readl_relaxed(row[1]) != updated[1]) {
 		for (j = 0; j < ARRAY_SIZE(row); j++)
-			writel(old[j], row[j]);
-		if (readl(row[0]) != old[0] || readl(row[1]) != old[1]) {
+			writel_relaxed(old[j], row[j]);
+		mb();
+		if (readl_relaxed(row[0]) != old[0] || readl_relaxed(row[1]) != old[1]) {
 			dev_err(dev, "Nova OC: LUT rollback failed\n");
 			return -EIO;
 		}
